@@ -740,10 +740,17 @@ def wizard(
 
 
 @cli.command()
-@click.argument("project_repo_path", type=click.Path(path_type=Path))
-def doctor(project_repo_path: Path) -> None:
+@click.argument("project_repo_path", required=False, type=click.Path(path_type=Path))
+def doctor(project_repo_path: Path | None) -> None:
     """Run health and hygiene checks."""
     root = devkit_root()
+
+    interactive = sys.stdin.isatty()
+    if project_repo_path is None:
+        if not interactive:
+            raise click.ClickException("PROJECT_REPO_PATH is required in non-interactive mode.")
+        project_repo_path = prompt_project_repo_path()
+
     project_dir = project_repo_path.expanduser().resolve()
     check_project_repo(project_dir)
 

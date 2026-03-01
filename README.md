@@ -21,8 +21,11 @@ Lean CLI toolbox for Odoo + pi.dev workflows.
 ./pi-odoo-devkit.py cleanup /path/to/odoo-project
 ```
 
-`doctor` requires `/path/to/odoo-project`.
-`wizard` and `cleanup` can prompt for it interactively, or you can pass it explicitly.
+`wizard`, `doctor`, and `cleanup` all support the same path behavior:
+- pass `/path/to/odoo-project` explicitly, or
+- run interactively and let the CLI prompt for it.
+
+In non-interactive mode, path is required.
 
 ## After setup (from your Odoo project)
 
