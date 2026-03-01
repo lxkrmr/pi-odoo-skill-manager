@@ -5,7 +5,7 @@ description: Export and update German translations (de.po) for Odoo addons. Use 
 
 # Odoo Translation Workflow
 
-_This skill follows `.pi/skills/_template/SKILL.md` conventions._
+_This skill follows `templates/SKILL.md` conventions._
 
 ## Prerequisites
 

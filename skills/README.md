@@ -1,26 +1,34 @@
-# Skills in `.pi/skills`
+# Skills (`skills/`)
 
-This directory contains local project skills used by the coding agent.
+This directory contains devkit-provided skills.
 
-Note: `browser-tools` is an adapted third-party skill/code bundle.
+Note: `browser-tools` is adapted third-party code.
 See `../THIRD_PARTY.md` for attribution and license information.
 
 ## Create a New Skill
 
-1. Copy the template:
+Use the CLI scaffold command from repo root:
 
 ```bash
-cp .pi/skills/_template/SKILL.md .pi/skills/<new-skill>/SKILL.md
+./pi-odoo-devkit.py new-skill <new-skill>
 ```
 
-2. Fill in frontmatter:
+This creates:
 
-- `name`
-- `description`
+```text
+skills/<new-skill>/SKILL.md
+```
 
-3. Replace placeholders in all sections.
+## Authoring Conventions
 
-4. Keep the standard sections where applicable:
+- Start from `templates/SKILL.md`
+- Fill frontmatter (`name`, `description`)
+- Keep commands copy-paste friendly
+- Avoid personal paths and real credentials
+- Add explicit safety notes for destructive actions
+- Keep scope tight (one skill = one clear workflow)
+
+## Required Sections (when applicable)
 
 - When to Use
 - Prerequisites
@@ -29,11 +37,3 @@ cp .pi/skills/_template/SKILL.md .pi/skills/<new-skill>/SKILL.md
 - Troubleshooting
 - Notes / Risks
 - Credential Hygiene
-
-## Conventions
-
-- Keep commands copy-paste friendly.
-- Prefer local/dev-safe defaults.
-- Avoid hardcoded personal paths and real credential values.
-- Include explicit safety notes for destructive actions.
-- Keep scope tight: one skill = one clear workflow.

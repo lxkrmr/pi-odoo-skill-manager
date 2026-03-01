@@ -5,7 +5,7 @@ description: Reusable checklist for quick Odoo UI regression spot-checks in loca
 
 # Odoo UI Regression Spot-Check (Template)
 
-_This skill follows `.pi/skills/_template/SKILL.md` conventions._
+_This skill follows `templates/SKILL.md` conventions._
 
 Use this as a lightweight, repeatable checklist when validating a UI change or bugfix in local Odoo.
 
@@ -19,7 +19,7 @@ Use this as a lightweight, repeatable checklist when validating a UI change or b
 
 - Local stack running: `docker compose up -d`
 - Odoo reachable: `http://localhost:8069`
-- Browser-tools deps installed: `./pi-odoo-devkit.sh wizard /path/to/odoo-project --yes --with-browser-tools`
+- Browser-tools deps installed: `./pi-odoo-devkit.py wizard /path/to/odoo-project --yes --with-browser-tools`
 - Browser CDP reachable: `curl -s http://localhost:9222/json/version`
 
 ## Step 1 — Define Check Matrix (before clicking)

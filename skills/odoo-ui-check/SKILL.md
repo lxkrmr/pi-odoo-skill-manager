@@ -5,7 +5,7 @@ description: Check local Odoo UI behavior in Odoo dev using browser-tools with a
 
 # Odoo UI Check (Local Odoo)
 
-_This skill follows `.pi/skills/_template/SKILL.md` conventions._
+_This skill follows `templates/SKILL.md` conventions._
 
 Use this skill when asked to verify behavior in the local Odoo web UI (`http://localhost:8069`) instead of only DB/ORM inspection.
 
@@ -34,7 +34,7 @@ This skill builds on `browser-tools` and is focused on Odoo-specific checks.
    - `http://localhost:8069`
 3. Ensure browser-tools dependencies are installed (from devkit root):
    ```bash
-   ./pi-odoo-devkit.sh wizard /path/to/odoo-project --yes --with-browser-tools
+   ./pi-odoo-devkit.py wizard /path/to/odoo-project --yes --with-browser-tools
    ```
 4. Ensure browser-tools CDP is reachable:
    ```bash

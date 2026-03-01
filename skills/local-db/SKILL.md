@@ -5,7 +5,7 @@ description: Access the local Odoo PostgreSQL database for development. Use when
 
 # Local Database Access
 
-_This skill follows `.pi/skills/_template/SKILL.md` conventions._
+_This skill follows `templates/SKILL.md` conventions._
 
 Access the local Odoo PostgreSQL DB (Docker `postgres` service) with `psql`.
 

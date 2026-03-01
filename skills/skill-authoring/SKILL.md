@@ -36,7 +36,7 @@ Create a **command** when:
 
 1. Create skill scaffold:
    ```bash
-   ./commands/dev new-skill <skill-name>
+   ./pi-odoo-devkit.py new-skill <skill-name>
    ```
 2. Fill frontmatter:
    - `name`
@@ -66,10 +66,10 @@ Before considering a skill done, verify:
 
 ```bash
 # scaffold a new skill
-./commands/dev new-skill my-new-skill
+./pi-odoo-devkit.py new-skill my-new-skill
 
 # run devkit checks (recommended)
-./commands/dev doctor
+./pi-odoo-devkit.py doctor /path/to/odoo-project
 ```
 
 ## Troubleshooting
@@ -77,7 +77,7 @@ Before considering a skill done, verify:
 - **Skill overlaps existing one**
   - Merge into existing skill or narrow scope.
 - **Needs code tooling, not just docs**
-  - Add/extend command in `commands/` and reference it in skill.
+  - Add/extend a `pi-odoo-devkit.py` subcommand and reference it in the skill.
 - **Unclear whether to add skill**
   - Start with command; promote to skill if workflow complexity grows.
 

@@ -5,7 +5,7 @@ description: Manage local Odoo addon lifecycle with tools/octo (list, install, u
 
 # Odoo Addon Lifecycle (Local)
 
-_This skill follows `.pi/skills/_template/SKILL.md` conventions._
+_This skill follows `templates/SKILL.md` conventions._
 
 Use this skill for local addon state changes via `tools/octo`.
 

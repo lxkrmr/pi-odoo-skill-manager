@@ -1,118 +1,1112 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
+import configparser
+import glob
+import json
+import os
+import re
+import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-
-def run_script(devkit_root: Path, rel_script: str, args: list[str]) -> int:
-    script = devkit_root / rel_script
-    cmd = [sys.executable, str(script), *args]
-    return subprocess.call(cmd)
+import click
 
 
-def run_dev_command(devkit_root: Path, args: list[str]) -> int:
-    dev_cmd = devkit_root / "commands" / "dev"
-    cmd = [str(dev_cmd), *args]
-    return subprocess.call(cmd)
+@dataclass
+class SkillMeta:
+    name: str
+    path: Path
+    description: str
 
 
-def main() -> int:
-    devkit_root = Path(__file__).resolve().parent
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
 
-    parser = argparse.ArgumentParser(
-        prog="pi-odoo-devkit",
-        description="Pi Odoo Devkit toolbox (wizard, doctor, components, skill/command management).",
+
+def devkit_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def run(cmd: list[str], cwd: Path | None = None) -> int:
+    return subprocess.call(cmd, cwd=str(cwd) if cwd else None)
+
+
+def check_project_repo(project_dir: Path) -> None:
+    if not project_dir.exists():
+        raise click.ClickException(f"Project repo path does not exist: {project_dir}")
+    if not (project_dir / "docker-compose.yml").exists():
+        raise click.ClickException(f"Not an Odoo project repo (missing docker-compose.yml): {project_dir}")
+
+
+def prompt_project_repo_path() -> Path:
+    """Prompt for project path with basic TAB filesystem completion when readline is available."""
+
+    readline = None
+    try:
+        import readline as _readline  # type: ignore
+
+        readline = _readline
+    except Exception:
+        readline = None
+
+    old_completer = None
+    old_delims = None
+
+    if readline is not None:
+        old_completer = readline.get_completer()
+        old_delims = readline.get_completer_delims()
+        is_libedit = "libedit" in (getattr(readline, "__doc__", "") or "").lower()
+
+        def _normalize_prefix(text: str) -> tuple[str, str]:
+            # Keep user-visible prefix (~ or absolute), and an expanded filesystem prefix for glob.
+            raw = text or ""
+            if raw.startswith("~"):
+                return raw, os.path.expanduser(raw)
+            return raw, raw
+
+        def _complete(text: str, state: int) -> str | None:
+            visible_prefix, fs_prefix = _normalize_prefix(text)
+            matches = glob.glob(fs_prefix + "*")
+            out: list[str] = []
+            for m in sorted(matches):
+                display = m
+                if visible_prefix.startswith("~"):
+                    home = os.path.expanduser("~")
+                    if display.startswith(home):
+                        display = "~" + display[len(home):]
+                if os.path.isdir(m):
+                    display += "/"
+                # readline expects escaped spaces in completion candidates
+                display = display.replace(" ", "\\ ")
+                out.append(display)
+            if state < len(out):
+                return out[state]
+            return None
+
+        readline.set_completer_delims("\t\n")
+        if is_libedit:
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+        readline.set_completer(_complete)
+
+    try:
+        while True:
+            raw = input("Enter path to your Odoo project repo: ").strip()
+            if not raw:
+                click.echo("Please enter a path.")
+                continue
+            raw = raw.replace("\\ ", " ")
+            p = Path(raw).expanduser().resolve()
+            try:
+                check_project_repo(p)
+                return p
+            except click.ClickException as e:
+                click.echo(f"{e.format_message()}")
+    finally:
+        if readline is not None:
+            readline.set_completer(old_completer)
+            if old_delims is not None:
+                readline.set_completer_delims(old_delims)
+
+
+def resolve_runtime_project_root() -> Path:
+    cwd = Path.cwd()
+    if (cwd / "docker-compose.yml").exists():
+        return cwd
+
+    cur = cwd
+    while cur != cur.parent:
+        if (cur / "docker-compose.yml").exists():
+            return cur
+        cur = cur.parent
+
+    raise click.ClickException(
+        "Could not resolve Odoo project repo root. Run from project repo or set cwd accordingly."
     )
 
-    sub = parser.add_subparsers(dest="command")
 
-    p_wizard = sub.add_parser("wizard", help="Run setup/reconfiguration wizard")
-    p_wizard.add_argument("args", nargs=argparse.REMAINDER)
+def preflight_checks() -> list[str]:
+    rows = []
+    for tool, required in [
+        ("python3", True),
+        ("docker", True),
+        ("node", False),
+        ("npm", False),
+        ("direnv", False),
+    ]:
+        ok = command_exists(tool)
+        status = "OK" if ok else ("MISSING (required)" if required else "MISSING (optional)")
+        rows.append(f"- {tool}: {status}")
+    return rows
 
-    p_doctor = sub.add_parser("doctor", help="Run health and hygiene checks")
-    p_doctor.add_argument("args", nargs=argparse.REMAINDER)
 
-    p_cleanup = sub.add_parser("cleanup", help="Run cleanup/uninstall flow")
-    p_cleanup.add_argument("args", nargs=argparse.REMAINDER)
+def parse_skill_meta(skill_dir: Path) -> SkillMeta | None:
+    skill_file = skill_dir / "SKILL.md"
+    if not skill_file.exists():
+        return None
 
-    p_components = sub.add_parser("components", help="Show available/enabled skills and commands")
-    p_components.add_argument("args", nargs=argparse.REMAINDER)
+    description = "No description provided."
+    name = skill_dir.name
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        if lines and lines[0].strip() == "---":
+            i = 1
+            while i < len(lines) and lines[i].strip() != "---":
+                line = lines[i]
+                if line.startswith("name:"):
+                    name = line.split(":", 1)[1].strip() or name
+                elif line.startswith("description:"):
+                    description = line.split(":", 1)[1].strip() or description
+                i += 1
+    except Exception:
+        pass
 
-    # Common developer actions (forward to commands/dev)
-    p_up = sub.add_parser("up", help="Start docker services")
-    p_up.add_argument("args", nargs=argparse.REMAINDER)
+    return SkillMeta(name=name, path=skill_dir, description=description)
 
-    p_db = sub.add_parser("db", help="Open psql using project DB config")
-    p_db.add_argument("args", nargs=argparse.REMAINDER)
 
-    p_shell = sub.add_parser("shell", help="Open Odoo shell (--no-http)")
-    p_shell.add_argument("args", nargs=argparse.REMAINDER)
+def discover_skills(root: Path) -> list[SkillMeta]:
+    skills_root = root / "skills"
+    if not skills_root.exists():
+        return []
+    out: list[SkillMeta] = []
+    for d in sorted(skills_root.iterdir(), key=lambda p: p.name):
+        if not d.is_dir() or d.name.startswith("_"):
+            continue
+        meta = parse_skill_meta(d)
+        if meta:
+            out.append(meta)
+    return out
 
-    p_test = sub.add_parser("test", help="Run project test wrapper")
-    p_test.add_argument("args", nargs=argparse.REMAINDER)
 
-    p_lint = sub.add_parser("lint", help="Run pre-commit wrapper")
-    p_lint.add_argument("args", nargs=argparse.REMAINDER)
+def load_skill_manifest(root: Path) -> dict:
+    manifest_path = root / "skills" / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
-    p_enable_skill = sub.add_parser("enable-skill", help="Enable one skill")
-    p_enable_skill.add_argument("name")
 
-    p_disable_skill = sub.add_parser("disable-skill", help="Disable one skill")
-    p_disable_skill.add_argument("name")
+def evaluate_skill_requirements(skill_name: str, project_dir: Path, manifest: dict) -> tuple[bool, str]:
+    entry = manifest.get(skill_name, {})
+    req = entry.get("requirements", {}) if isinstance(entry, dict) else {}
 
-    p_enable_cmd = sub.add_parser("enable-command", help="Enable one command")
-    p_enable_cmd.add_argument("name")
+    reasons: list[str] = []
+    for rel in req.get("project_files", []):
+        if not (project_dir / rel).exists():
+            reasons.append(f"missing file: {rel}")
+    for rel in req.get("project_dirs", []):
+        p = project_dir / rel
+        if not p.exists() or not p.is_dir():
+            reasons.append(f"missing directory: {rel}")
+    for cmd in req.get("commands", []):
+        if not command_exists(cmd):
+            reasons.append(f"missing command: {cmd}")
 
-    p_disable_cmd = sub.add_parser("disable-command", help="Disable one command")
-    p_disable_cmd.add_argument("name")
+    if reasons:
+        return False, "; ".join(reasons)
+    return True, ""
 
-    p_new_skill = sub.add_parser("new-skill", help="Scaffold a new skill")
-    p_new_skill.add_argument("name")
 
-    args = parser.parse_args()
+def ensure_container_dir(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    path.mkdir(parents=True, exist_ok=True)
 
-    if args.command in {None, "help"}:
-        parser.print_help()
-        return 0
 
-    if args.command == "wizard":
-        extra = args.args if hasattr(args, "args") else []
-        return run_script(devkit_root, "bootstrap/install.py", extra)
+def sync_symlink_set(target_dir: Path, selected: dict[str, Path]) -> list[str]:
+    messages: list[str] = []
+    ensure_container_dir(target_dir)
 
-    if args.command == "doctor":
-        return run_script(devkit_root, "bootstrap/doctor.py", args.args)
+    for existing in target_dir.iterdir():
+        if existing.name not in selected:
+            if existing.is_symlink() or existing.is_file():
+                existing.unlink()
+                messages.append(f"Removed: {existing}")
+            elif existing.is_dir():
+                shutil.rmtree(existing)
+                messages.append(f"Removed dir: {existing}")
 
-    if args.command == "cleanup":
-        extra = args.args if hasattr(args, "args") else []
-        return run_script(devkit_root, "bootstrap/uninstall.py", extra)
+    for name, src in selected.items():
+        dst = target_dir / name
+        if dst.is_symlink() and dst.resolve() == src.resolve():
+            continue
+        if dst.exists() or dst.is_symlink():
+            if dst.is_dir() and not dst.is_symlink():
+                shutil.rmtree(dst)
+            else:
+                dst.unlink()
+        dst.symlink_to(src)
+        messages.append(f"Linked: {dst} -> {src}")
 
-    if args.command == "components":
-        return run_dev_command(devkit_root, ["components", *args.args])
+    return messages
 
-    if args.command in {"up", "db", "shell", "test", "lint"}:
-        return run_dev_command(devkit_root, [args.command, *args.args])
 
-    if args.command == "enable-skill":
-        return run_dev_command(devkit_root, ["enable-skill", args.name])
+def ensure_local_exclude(project_dir: Path) -> str:
+    exclude_file = project_dir / ".git" / "info" / "exclude"
+    exclude_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude_file.read_text(encoding="utf-8") if exclude_file.exists() else ""
+    if any(line.strip() == ".pi/" for line in existing.splitlines()):
+        return f"Local git exclude already contains '.pi/': {exclude_file}"
+    with exclude_file.open("a", encoding="utf-8") as f:
+        f.write("\n# local pi files\n.pi/\n")
+    return f"Added local git exclude '.pi/' to: {exclude_file}"
 
-    if args.command == "disable-skill":
-        return run_dev_command(devkit_root, ["disable-skill", args.name])
 
-    if args.command == "enable-command":
-        return run_dev_command(devkit_root, ["enable-command", args.name])
+def remove_local_exclude_entry(project_dir: Path) -> str:
+    exclude_file = project_dir / ".git" / "info" / "exclude"
+    if not exclude_file.exists():
+        return f"SKIP: no local exclude file: {exclude_file}"
 
-    if args.command == "disable-command":
-        return run_dev_command(devkit_root, ["disable-command", args.name])
+    lines = exclude_file.read_text(encoding="utf-8").splitlines()
+    new_lines: list[str] = []
+    removed = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == ".pi/":
+            removed = True
+            if new_lines and new_lines[-1].strip() == "# local pi files":
+                new_lines.pop()
+            i += 1
+            continue
+        new_lines.append(line)
+        i += 1
 
-    if args.command == "new-skill":
-        return run_dev_command(devkit_root, ["new-skill", args.name])
+    if not removed:
+        return f"SKIP: '.pi/' not present in {exclude_file}"
 
-    parser.print_help()
-    return 1
+    content = "\n".join(new_lines).rstrip() + "\n"
+    exclude_file.write_text(content, encoding="utf-8")
+    return f"UPDATED: removed '.pi/' from {exclude_file}"
+
+
+def ensure_envrc(root: Path) -> list[str]:
+    messages: list[str] = []
+    envrc = root / ".envrc"
+    gitignore = root / ".gitignore"
+    venv_dir = root / ".venv"
+
+    envrc_content = """# Odoo Devkit recommended environment (direnv + venv)
+export ODOO_DEVKIT_ROOT=\"$(pwd)\"
+
+if [ -f .envrc.local ]; then
+  source .envrc.local
+fi
+
+if [ ! -d .venv ]; then
+  python3 -m venv .venv
+fi
+
+source .venv/bin/activate
+"""
+
+    if not envrc.exists():
+        envrc.write_text(envrc_content, encoding="utf-8")
+        messages.append(f"Created {envrc}")
+    else:
+        messages.append(f"Kept existing {envrc}")
+
+    ignore_lines = gitignore.read_text(encoding="utf-8").splitlines() if gitignore.exists() else []
+    changed = False
+    for line in [".venv/", ".direnv/", ".envrc.local"]:
+        if line not in ignore_lines:
+            ignore_lines.append(line)
+            changed = True
+    if changed or not gitignore.exists():
+        gitignore.write_text("\n".join(ignore_lines).strip() + "\n", encoding="utf-8")
+        messages.append(f"Updated {gitignore} with .venv/.direnv ignores")
+
+    if not venv_dir.exists():
+        subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+        messages.append(f"Created virtualenv: {venv_dir}")
+    else:
+        messages.append(f"Virtualenv already present: {venv_dir}")
+
+    if command_exists("direnv"):
+        messages.append("direnv detected. Run: direnv allow")
+    else:
+        messages.append("direnv not found. Install direnv for recommended setup, then run: direnv allow")
+
+    return messages
+
+
+def install_browser_tools(root: Path) -> list[str]:
+    messages: list[str] = []
+    bt_dir = root / "skills" / "browser-tools" / "browser-tools"
+    if not bt_dir.exists():
+        return [f"Browser tools directory missing: {bt_dir}"]
+
+    missing = [tool for tool in ("node", "npm") if not command_exists(tool)]
+    if missing:
+        return [f"Browser tools setup skipped: missing dependencies: {', '.join(missing)}"]
+
+    messages.append(f"Running npm install in {bt_dir} ...")
+    subprocess.run(["npm", "install"], cwd=bt_dir, check=True)
+    messages.append("Browser tools npm dependencies installed.")
+    return messages
+
+
+def write_local_agent_notes(project_dir: Path) -> Path:
+    notes_path = project_dir / ".pi" / "DEVKIT_AGENT_NOTES.md"
+    content = """# Odoo Devkit Local Notes
+
+<!-- managed-by: devkit installer -->
+
+This file is generated by `pi-odoo-devkit.py`.
+
+## Shared Devkit Links
+
+- Skills: `.pi/skills/shared-devkit`
+- Dev command: `.pi/devkit`
+
+## Quick Commands
+
+```bash
+./.pi/devkit --help
+./.pi/devkit up
+./.pi/devkit db
+./.pi/devkit shell
+```
+
+## Browser Skill Dependency
+
+If using browser-based skills (`browser-tools`, `odoo-ui-check`, `odoo-ui-regression-check`), ensure browser-tools deps are installed:
+
+```bash
+cd /path/to/pi-odoo-devkit
+./pi-odoo-devkit.py wizard /path/to/odoo-project --with-browser-tools --yes
+```
+
+## Notes
+
+- This file is local support material; it does not modify `AGENTS.md`/`CLAUDE.md` automatically.
+- If you want to reference it, add a short line in your preferred agent doc.
+"""
+    notes_path.parent.mkdir(parents=True, exist_ok=True)
+    notes_path.write_text(content, encoding="utf-8")
+    return notes_path
+
+
+def current_enabled_names(target_dir: Path) -> set[str]:
+    if not target_dir.exists():
+        return set()
+    names: set[str] = set()
+    for p in target_dir.iterdir():
+        if p.is_symlink() or p.exists():
+            names.add(p.name)
+    return names
+
+
+def default_selection(all_skills: list[SkillMeta], available_skill_names: set[str]) -> set[str]:
+    skill_names = {s.name for s in all_skills}
+    recommended = {
+        "local-db",
+        "odoo-shell-debug",
+        "odoo-addon-lifecycle",
+        "odoo-translate",
+        "odoo-ui-check",
+        "odoo-ui-regression-check",
+        "skill-authoring",
+    }
+    return (recommended & skill_names) & available_skill_names
+
+
+def archive_path(base_dir: Path, name: str) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return base_dir / f"{name}.{stamp}"
+
+
+def _devkit_skills_backup_root(project_dir: Path) -> Path:
+    return project_dir / ".pi" / "_devkit-backups" / "skills"
+
+
+def sanitize_project_skills(project_dir: Path, managed_skills: set[str]) -> list[str]:
+    actions: list[str] = []
+    skills_root = project_dir / ".pi" / "skills"
+    if not skills_root.exists():
+        return actions
+
+    # Migrate old backup location that was inside .pi/skills (pi discovers it and warns)
+    old_backup_root = skills_root / "_disabled-by-devkit"
+    backup_root = _devkit_skills_backup_root(project_dir)
+    backup_root.mkdir(parents=True, exist_ok=True)
+
+    if old_backup_root.exists():
+        migrated_target = archive_path(backup_root, "legacy-disabled-skills")
+        shutil.move(str(old_backup_root), str(migrated_target))
+        actions.append(f"Moved legacy backup out of .pi/skills: {old_backup_root} -> {migrated_target}")
+
+    for invalid_name in ["README.md", "_template"]:
+        p = skills_root / invalid_name
+        if p.exists() or p.is_symlink():
+            dest = archive_path(backup_root, invalid_name)
+            shutil.move(str(p), str(dest))
+            actions.append(f"Archived invalid skill artifact: {p} -> {dest}")
+
+    for skill_name in sorted(managed_skills):
+        p = skills_root / skill_name
+        if not p.exists() and not p.is_symlink():
+            continue
+        if p.is_symlink():
+            continue
+        dest = archive_path(backup_root, skill_name)
+        shutil.move(str(p), str(dest))
+        actions.append(f"Archived colliding local skill: {p} -> {dest}")
+
+    return actions
+
+
+def migrate_legacy_tools(project_dir: Path) -> list[str]:
+    actions: list[str] = []
+    tools_dir = project_dir / ".pi" / "tools"
+    if not tools_dir.exists():
+        return actions
+
+    backup = project_dir / ".pi" / "_legacy-tools-disabled"
+    target = archive_path(backup, "tools")
+    backup.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(tools_dir), str(target))
+    actions.append(f"Archived legacy .pi/tools directory: {tools_dir} -> {target}")
+    return actions
+
+
+def print_agent_doc_guidance(project_dir: Path, notes_path: Path) -> None:
+    click.echo("\n[agent docs]")
+    click.echo(f"- Wrote local include notes: {notes_path}")
+
+    existing = [p for p in (project_dir / "AGENTS.md", project_dir / "CLAUDE.md") if p.exists()]
+    if existing:
+        click.echo("- Existing agent docs detected:")
+        for p in existing:
+            click.echo(f"  - {p}")
+        click.echo("- No automatic edits were applied (non-invasive by design).")
+    else:
+        click.echo("- No AGENTS.md/CLAUDE.md found at repo root. That's okay.")
+
+
+def load_pg_env(project_dir: Path) -> dict[str, str]:
+    cfg = configparser.ConfigParser()
+    paths = [
+        project_dir / "docker" / "odoo_base.conf",
+        project_dir / "docker" / "odoo_local.conf",
+    ]
+    cfg.read([str(p) for p in paths if p.exists()])
+    opt = cfg["options"] if cfg.has_section("options") else {}
+
+    vals = {
+        "PGHOST": str(opt.get("db_host", "localhost")),
+        "PGPORT": str(opt.get("db_port", "5432")),
+        "PGDATABASE": str(opt.get("db_name", "postgres")),
+        "PGUSER": str(opt.get("db_user", "odoo")),
+        "PGPASSWORD": str(opt.get("db_password", "odoo")),
+    }
+    if vals["PGHOST"] in {"postgres", "db"}:
+        vals["PGHOST"] = "localhost"
+    return vals
+
+
+def check_http(url: str, name: str) -> tuple[str, str, str]:
+    try:
+        with urllib.request.urlopen(url, timeout=2) as r:
+            if 200 <= r.status < 400:
+                return (name, "PASS", f"reachable: {url} (HTTP {r.status})")
+            return (name, "WARN", f"unexpected HTTP status {r.status}: {url}")
+    except urllib.error.URLError as e:
+        return (name, "WARN", f"not reachable: {url} ({e})")
+
+
+def scan_content_hygiene(root: Path) -> tuple[str, str, str]:
+    exclude_dirs = {".git", "node_modules", ".venv", ".direnv"}
+    patterns = [
+        (re.compile(r"/Users/[A-Za-z0-9._-]+"), "hardcoded macOS user path"),
+        (re.compile(r"/home/[A-Za-z0-9._-]+"), "hardcoded Linux home path"),
+        (re.compile(r"~/workspace/"), "hardcoded workspace home shortcut"),
+        (re.compile(r"\bphiloro\b", re.IGNORECASE), "company-specific identifier"),
+    ]
+
+    hits: list[str] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part in exclude_dirs for part in path.parts):
+            continue
+        if path.suffix in {".lock", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf"}:
+            continue
+        if path.name == ".envrc.local":
+            continue
+        if path.name == "pi-odoo-devkit.py":
+            continue
+
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        for idx, line in enumerate(text.splitlines(), start=1):
+            for rx, label in patterns:
+                if rx.search(line):
+                    rel = path.relative_to(root)
+                    hits.append(f"{rel}:{idx} ({label})")
+                    if len(hits) >= 10:
+                        break
+            if len(hits) >= 10:
+                break
+        if len(hits) >= 10:
+            break
+
+    if hits:
+        preview = "; ".join(hits[:3])
+        more = "" if len(hits) <= 3 else f" (+{len(hits)-3} more)"
+        return ("content-hygiene", "WARN", f"Potentially non-generic content found: {preview}{more}")
+
+    return ("content-hygiene", "PASS", "No obvious personal paths/company-specific identifiers found")
+
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+def cli() -> None:
+    """Pi Odoo Devkit CLI."""
+
+
+@cli.command()
+@click.argument("project_repo_path", required=False, type=click.Path(path_type=Path))
+@click.option("--add-local-exclude", is_flag=True, help="Add '.pi/' to <project>/.git/info/exclude (local-only).")
+@click.option("--with-browser-tools", is_flag=True, help="Install browser-tools npm dependencies")
+@click.option("--without-browser-tools", is_flag=True, help="Skip browser-tools npm dependencies")
+@click.option("--without-envrc", is_flag=True, help="Skip recommended .envrc/.venv bootstrap")
+@click.option("--yes", is_flag=True, help="Non-interactive mode (use sensible defaults)")
+def wizard(
+    project_repo_path: Path | None,
+    add_local_exclude: bool,
+    with_browser_tools: bool,
+    without_browser_tools: bool,
+    without_envrc: bool,
+    yes: bool,
+) -> None:
+    """Run setup/reconfiguration wizard."""
+    if with_browser_tools and without_browser_tools:
+        raise click.ClickException("Cannot combine --with-browser-tools and --without-browser-tools")
+
+    root = devkit_root()
+    interactive = sys.stdin.isatty() and not yes
+
+    if project_repo_path is None:
+        if not interactive:
+            raise click.ClickException("PROJECT_REPO_PATH is required in non-interactive mode.")
+        project_repo_path = prompt_project_repo_path()
+
+    project_dir = project_repo_path.expanduser().resolve()
+    check_project_repo(project_dir)
+
+    if interactive:
+        click.echo("Welcome to the Odoo Devkit setup wizard 👋")
+        click.echo("No changes are written until final confirmation.")
+        click.echo()
+
+    click.echo("[preflight]")
+    for row in preflight_checks():
+        click.echo(row)
+    click.echo()
+
+    missing_required = [tool for tool in ("python3", "docker") if not command_exists(tool)]
+    if missing_required:
+        raise click.ClickException(f"Missing required tools: {', '.join(missing_required)}")
+
+    all_skills = discover_skills(root)
+    manifest = load_skill_manifest(root)
+    availability: dict[str, tuple[bool, str]] = {}
+    for s in all_skills:
+        availability[s.name] = evaluate_skill_requirements(s.name, project_dir, manifest)
+
+    shared_skills_dir = project_dir / ".pi" / "skills" / "shared-devkit"
+    current_skills = current_enabled_names(shared_skills_dir)
+
+    if current_skills:
+        selected_skills = {n for n in current_skills if availability.get(n, (False, ""))[0]}
+    else:
+        selected_skills = default_selection(all_skills, {n for n, (ok, _) in availability.items() if ok})
+
+    if interactive:
+        click.echo("[skills selection]")
+        for s in all_skills:
+            ok, reason = availability.get(s.name, (True, ""))
+            if not ok:
+                selected_skills.discard(s.name)
+                click.echo(f"  ⛔ {s.name} unavailable — {reason}")
+                continue
+
+            default = s.name in selected_skills
+            use = click.confirm(f"Use skill '{s.name}'? — {s.description}", default=default)
+            if use:
+                selected_skills.add(s.name)
+            else:
+                selected_skills.discard(s.name)
+
+    if with_browser_tools:
+        enable_browser = True
+    elif without_browser_tools:
+        enable_browser = False
+    elif interactive:
+        enable_browser = click.confirm(
+            "Install browser-tools dependencies now? (needed for browser-based skills)",
+            default=("browser-tools" in selected_skills),
+        )
+    else:
+        enable_browser = "browser-tools" in selected_skills
+
+    enable_envrc = False if without_envrc else (click.confirm("Set up recommended local environment (direnv + .venv)?", default=True) if interactive else True)
+    enable_local_exclude = add_local_exclude or (click.confirm("Hide local .pi files from git status on this machine?", default=True) if interactive else False)
+    migrate_tools = click.confirm("Archive legacy .pi/tools directory to avoid pi startup warnings?", default=True) if interactive else True
+
+    if interactive:
+        click.echo("\n[summary]")
+        click.echo(f"- Project: {project_dir}")
+        click.echo(f"- Skills to enable ({len(selected_skills)}): {', '.join(sorted(selected_skills)) if selected_skills else '(none)'}")
+        click.echo(f"- Setup env (.envrc/.venv): {'yes' if enable_envrc else 'no'}")
+        click.echo(f"- Install browser-tools deps: {'yes' if enable_browser else 'no'}")
+        click.echo(f"- Add local git exclude (.pi/): {'yes' if enable_local_exclude else 'no'}")
+        click.echo(f"- Archive legacy .pi/tools: {'yes' if migrate_tools else 'no'}")
+        if not click.confirm("Apply these changes now?", default=True):
+            click.echo("Cancelled. No changes were applied.")
+            return
+
+    (project_dir / ".pi" / "skills").mkdir(parents=True, exist_ok=True)
+
+    skill_map = {
+        s.name: s.path
+        for s in all_skills
+        if s.name in selected_skills and availability.get(s.name, (True, ""))[0]
+    }
+    skill_msgs = sync_symlink_set(shared_skills_dir, skill_map)
+
+    # Main convenience entrypoint in project
+    local_devkit_link = project_dir / ".pi" / "devkit"
+    target = root / "pi-odoo-devkit.py"
+    if local_devkit_link.exists() or local_devkit_link.is_symlink():
+        if local_devkit_link.is_symlink() and local_devkit_link.resolve() == target.resolve():
+            pass
+        else:
+            local_devkit_link.unlink()
+            local_devkit_link.symlink_to(target)
+    else:
+        local_devkit_link.symlink_to(target)
+
+    hygiene_msgs = sanitize_project_skills(project_dir, set(skill_map.keys()))
+    tools_msgs = migrate_legacy_tools(project_dir) if migrate_tools else []
+    notes_path = write_local_agent_notes(project_dir)
+
+    click.echo(f"Installed devkit setup into: {project_dir}")
+    click.echo("\n[skills]")
+    click.echo(f"- Enabled: {', '.join(sorted(skill_map.keys())) if skill_map else '(none)'}")
+    for msg in skill_msgs:
+        click.echo(f"- {msg}")
+
+    click.echo("\n[project links]")
+    click.echo(f"- Convenience link: {local_devkit_link} -> {local_devkit_link.resolve()}")
+
+    if hygiene_msgs:
+        click.echo("\n[pi skill hygiene]")
+        for msg in hygiene_msgs:
+            click.echo(f"- {msg}")
+
+    if tools_msgs:
+        click.echo("\n[pi tools migration]")
+        for msg in tools_msgs:
+            click.echo(f"- {msg}")
+
+    if enable_local_exclude:
+        click.echo(ensure_local_exclude(project_dir))
+
+    if enable_envrc:
+        click.echo("\n[env setup]")
+        for msg in ensure_envrc(root):
+            click.echo(f"- {msg}")
+
+    if enable_browser:
+        click.echo("\n[browser-tools]")
+        for msg in install_browser_tools(root):
+            click.echo(f"- {msg}")
+
+    print_agent_doc_guidance(project_dir, notes_path)
+
+
+@cli.command()
+@click.argument("project_repo_path", type=click.Path(path_type=Path))
+def doctor(project_repo_path: Path) -> None:
+    """Run health and hygiene checks."""
+    root = devkit_root()
+    project_dir = project_repo_path.expanduser().resolve()
+    check_project_repo(project_dir)
+
+    results: list[tuple[str, str, str]] = []
+
+    for tool, required in [
+        ("python3", True),
+        ("docker", True),
+        ("node", False),
+        ("npm", False),
+        ("direnv", False),
+    ]:
+        ok = command_exists(tool)
+        if ok:
+            results.append((f"tool:{tool}", "PASS", "installed"))
+        elif required:
+            results.append((f"tool:{tool}", "FAIL", "missing required tool"))
+        else:
+            results.append((f"tool:{tool}", "WARN", "missing optional tool"))
+
+    skills_dir = project_dir / ".pi" / "skills" / "shared-devkit"
+    if not skills_dir.exists():
+        results.append(("skills:shared-devkit", "FAIL", f"missing: {skills_dir}"))
+    else:
+        entries = list(skills_dir.iterdir()) if skills_dir.is_dir() else []
+        results.append(("skills:shared-devkit", "PASS", f"{len(entries)} entries"))
+
+    local_devkit = project_dir / ".pi" / "devkit"
+    if local_devkit.is_symlink():
+        results.append(("link:.pi/devkit", "PASS", f"ok -> {local_devkit.resolve()}"))
+    elif local_devkit.exists():
+        results.append(("link:.pi/devkit", "WARN", "exists but not a symlink"))
+    else:
+        results.append(("link:.pi/devkit", "WARN", "missing"))
+
+    legacy_tools = project_dir / ".pi" / "tools"
+    if legacy_tools.exists():
+        results.append(("pi:legacy-tools", "WARN", "project has .pi/tools (pi will warn; migrate/remove it)"))
+    else:
+        results.append(("pi:legacy-tools", "PASS", "no legacy .pi/tools directory"))
+
+    # collision + invalid skill artifacts
+    root_skills = project_dir / ".pi" / "skills"
+    if root_skills.exists():
+        collisions = []
+        if skills_dir.exists() and skills_dir.is_dir():
+            for s in skills_dir.iterdir():
+                direct = root_skills / s.name
+                if direct.exists() and not direct.is_symlink():
+                    collisions.append(s.name)
+        if collisions:
+            results.append(("skills:collisions", "WARN", f"colliding names in .pi/skills: {', '.join(sorted(collisions))}"))
+        else:
+            results.append(("skills:collisions", "PASS", "no skill name collisions detected"))
+
+        invalid = []
+        for name in ["README.md", "_template", "_disabled-by-devkit"]:
+            p = root_skills / name
+            if p.exists() or p.is_symlink():
+                invalid.append(name)
+        if invalid:
+            results.append(("skills:invalid-artifacts", "WARN", f"invalid entries in .pi/skills: {', '.join(invalid)}"))
+        else:
+            results.append(("skills:invalid-artifacts", "PASS", "none"))
+
+    manifest = load_skill_manifest(root)
+    if skills_dir.exists() and skills_dir.is_dir():
+        for p in sorted(skills_dir.iterdir(), key=lambda x: x.name):
+            ok, reason = evaluate_skill_requirements(p.name, project_dir, manifest)
+            if ok:
+                results.append((f"skill:{p.name}:deps", "PASS", "requirements satisfied"))
+            else:
+                results.append((f"skill:{p.name}:deps", "WARN", reason))
+
+    results.append(check_http("http://localhost:8069", "odoo:web"))
+    results.append(check_http("http://localhost:9222/json/version", "browser:cdp"))
+    results.append(scan_content_hygiene(root))
+
+    click.echo(f"Odoo devkit doctor report\n- devkit: {root}\n- project: {project_dir}\n")
+
+    fail_count = 0
+    warn_count = 0
+    for name, status, message in results:
+        icon = "✅" if status == "PASS" else ("⚠️" if status == "WARN" else "❌")
+        click.echo(f"{icon} [{status}] {name}: {message}")
+        if status == "FAIL":
+            fail_count += 1
+        elif status == "WARN":
+            warn_count += 1
+
+    click.echo("\nSummary:")
+    click.echo(f"- FAIL: {fail_count}")
+    click.echo(f"- WARN: {warn_count}")
+
+    if fail_count:
+        raise SystemExit(1)
+
+
+@cli.command(name="cleanup")
+@click.argument("project_repo_path", required=False, type=click.Path(path_type=Path))
+@click.option("--remove-local-exclude", is_flag=True, help="Remove '.pi/' from <project>/.git/info/exclude if present")
+@click.option("--all", "remove_all", is_flag=True, help="Remove all devkit-managed links/files without interactive prompts")
+@click.option("--yes", is_flag=True, help="Non-interactive mode (accept defaults)")
+def cleanup_cmd(project_repo_path: Path | None, remove_local_exclude: bool, remove_all: bool, yes: bool) -> None:
+    """Run cleanup/uninstall flow."""
+    interactive = sys.stdin.isatty() and not yes and not remove_all
+
+    if project_repo_path is None:
+        if not interactive:
+            raise click.ClickException("PROJECT_REPO_PATH is required in non-interactive mode.")
+        project_repo_path = prompt_project_repo_path()
+
+    project_dir = project_repo_path.expanduser().resolve()
+    check_project_repo(project_dir)
+
+    skills_dir = project_dir / ".pi" / "skills" / "shared-devkit"
+    local_devkit = project_dir / ".pi" / "devkit"
+    notes = project_dir / ".pi" / "DEVKIT_AGENT_NOTES.md"
+    legacy_tools = project_dir / ".pi" / "tools"
+    legacy_skill_backup = project_dir / ".pi" / "skills" / "_disabled-by-devkit"
+    devkit_backups = project_dir / ".pi" / "_devkit-backups"
+    legacy_tools_backup = project_dir / ".pi" / "_legacy-tools-disabled"
+
+    remove_skills = True
+    remove_devkit_link = True
+    remove_notes = True
+    remove_legacy_tools = True
+    remove_devkit_backups = True
+
+    if interactive:
+        remove_skills = click.confirm("Remove installed devkit skills from project (.pi/skills/shared-devkit)?", default=True)
+        remove_devkit_link = click.confirm("Remove project devkit entrypoint (.pi/devkit)?", default=True)
+        remove_notes = click.confirm("Remove local devkit notes file (.pi/DEVKIT_AGENT_NOTES.md)?", default=True)
+        remove_legacy_tools = click.confirm("Remove legacy .pi/tools directory if present?", default=True)
+        remove_devkit_backups = click.confirm("Remove devkit backup archives (.pi/_devkit-backups, .pi/_legacy-tools-disabled, old .pi/skills/_disabled-by-devkit)?", default=True)
+        if not remove_local_exclude:
+            remove_local_exclude = click.confirm("Remove '.pi/' entry from local git exclude?", default=False)
+
+    actions: list[str] = []
+
+    if remove_skills and skills_dir.exists():
+        if skills_dir.is_dir() and not skills_dir.is_symlink():
+            shutil.rmtree(skills_dir)
+            actions.append(f"REMOVED dir: {skills_dir}")
+        else:
+            skills_dir.unlink()
+            actions.append(f"REMOVED: {skills_dir}")
+    else:
+        actions.append(f"SKIP: {skills_dir}")
+
+    if remove_devkit_link and (local_devkit.exists() or local_devkit.is_symlink()):
+        local_devkit.unlink()
+        actions.append(f"REMOVED: {local_devkit}")
+    else:
+        actions.append(f"SKIP: {local_devkit}")
+
+    if remove_notes and notes.exists():
+        text = notes.read_text(encoding="utf-8")
+        if "managed-by: devkit installer" in text:
+            notes.unlink()
+            actions.append(f"REMOVED: {notes}")
+        else:
+            actions.append(f"SKIP: notes file not managed by installer: {notes}")
+    else:
+        actions.append(f"SKIP: {notes}")
+
+    if remove_legacy_tools and legacy_tools.exists():
+        shutil.rmtree(legacy_tools)
+        actions.append(f"REMOVED dir: {legacy_tools}")
+    else:
+        actions.append(f"SKIP: {legacy_tools}")
+
+    if remove_devkit_backups:
+        for p in [legacy_skill_backup, devkit_backups, legacy_tools_backup]:
+            if p.exists():
+                if p.is_dir() and not p.is_symlink():
+                    shutil.rmtree(p)
+                    actions.append(f"REMOVED dir: {p}")
+                else:
+                    p.unlink()
+                    actions.append(f"REMOVED: {p}")
+            else:
+                actions.append(f"SKIP: {p}")
+
+    if remove_local_exclude:
+        actions.append(remove_local_exclude_entry(project_dir))
+
+    click.echo(f"Uninstall summary for project repo: {project_dir}")
+    for line in actions:
+        click.echo(f"- {line}")
+
+
+@cli.command()
+def components() -> None:
+    """Show available/enabled skills from current project."""
+    root = devkit_root()
+    project = resolve_runtime_project_root()
+    skills = discover_skills(root)
+    manifest = load_skill_manifest(root)
+
+    enabled_dir = project / ".pi" / "skills" / "shared-devkit"
+    enabled = {p.name for p in enabled_dir.iterdir()} if enabled_dir.exists() and enabled_dir.is_dir() else set()
+
+    click.echo("\n🧰 Pi Odoo Devkit Components")
+    click.echo(f"Project: {project}")
+    click.echo(f"Devkit:  {root}\n")
+
+    click.echo("Skills:")
+    if not skills:
+        click.echo("  (none)")
+    for s in skills:
+        ok, reason = evaluate_skill_requirements(s.name, project, manifest)
+        if ok:
+            mark = "✅" if s.name in enabled else "⬜"
+            click.echo(f"  {mark} {s.name:28} {s.description}")
+        else:
+            click.echo(f"  ⛔ {s.name:28} {s.description}  (unavailable: {reason})")
+
+
+@cli.command("enable-skill")
+@click.argument("name")
+def enable_skill(name: str) -> None:
+    """Enable one skill in current project."""
+    root = devkit_root()
+    project = resolve_runtime_project_root()
+    src = root / "skills" / name
+    marker = src / "SKILL.md"
+    dst = project / ".pi" / "skills" / "shared-devkit" / name
+
+    if not marker.exists():
+        raise click.ClickException(f"Skill not found in devkit: {name}")
+
+    manifest = load_skill_manifest(root)
+    ok, reason = evaluate_skill_requirements(name, project, manifest)
+    if not ok:
+        raise click.ClickException(f"Cannot enable skill '{name}' ({reason})")
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() or dst.is_symlink():
+        if dst.is_dir() and not dst.is_symlink():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    dst.symlink_to(src)
+
+    for msg in sanitize_project_skills(project, {name}):
+        click.echo(f"- {msg}")
+    click.echo(f"✅ Enabled skill: {name}")
+
+
+@cli.command("disable-skill")
+@click.argument("name")
+def disable_skill(name: str) -> None:
+    """Disable one skill in current project."""
+    project = resolve_runtime_project_root()
+    dst = project / ".pi" / "skills" / "shared-devkit" / name
+    if dst.exists() or dst.is_symlink():
+        if dst.is_dir() and not dst.is_symlink():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+        click.echo(f"✅ Disabled skill: {name}")
+    else:
+        click.echo(f"Skill already disabled: {name}")
+
+
+@cli.command("new-skill")
+@click.argument("name")
+def new_skill(name: str) -> None:
+    """Scaffold a new skill."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+        raise click.ClickException(f"Invalid skill name '{name}'. Use lowercase letters, numbers, and dashes.")
+
+    root = devkit_root()
+    template = root / "templates" / "SKILL.md"
+    target_dir = root / "skills" / name
+    target_file = target_dir / "SKILL.md"
+
+    if not template.exists():
+        raise click.ClickException(f"Template not found: {template}")
+    if target_file.exists():
+        raise click.ClickException(f"Skill already exists: {target_file}")
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    text = template.read_text(encoding="utf-8")
+    text = text.replace("<skill-name>", name)
+    text = text.replace("<one-line purpose>", f"Describe the purpose of {name}.")
+    text = text.replace("<Skill Title>", name.replace("-", " ").title())
+    target_file.write_text(text, encoding="utf-8")
+
+    click.echo(f"Created skill scaffold: {target_file}")
+
+
+@cli.command()
+@click.argument("services", nargs=-1)
+def up(services: tuple[str, ...]) -> None:
+    """Start docker services (docker compose up -d)."""
+    project = resolve_runtime_project_root()
+    code = run(["docker", "compose", "up", "-d", *services], cwd=project)
+    raise SystemExit(code)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@click.pass_context
+def db(ctx: click.Context) -> None:
+    """Open psql using project DB config."""
+    project = resolve_runtime_project_root()
+    env = os.environ.copy()
+    env.update(load_pg_env(project))
+    args = ctx.args
+
+    if command_exists("psql"):
+        code = subprocess.call(["psql", *args], cwd=project, env=env)
+    else:
+        click.echo("psql not found locally; using postgres container psql")
+        code = subprocess.call(
+            [
+                "docker",
+                "compose",
+                "exec",
+                "postgres",
+                "psql",
+                "-U",
+                env["PGUSER"],
+                "-d",
+                env["PGDATABASE"],
+                *args,
+            ],
+            cwd=project,
+            env=env,
+        )
+    raise SystemExit(code)
+
+
+@cli.command()
+@click.argument("db_name", required=False)
+def shell(db_name: str | None) -> None:
+    """Open Odoo shell (--no-http)."""
+    project = resolve_runtime_project_root()
+    env = load_pg_env(project)
+    db = db_name or os.environ.get("DATABASE") or env["PGDATABASE"]
+    code = run(["docker", "compose", "exec", "odoo", "odoo", "shell", "--no-http", "-d", db], cwd=project)
+    raise SystemExit(code)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@click.pass_context
+def test(ctx: click.Context) -> None:
+    """Run project test wrapper."""
+    project = resolve_runtime_project_root()
+    code = run(["./run-tests.sh", *ctx.args], cwd=project)
+    raise SystemExit(code)
+
+
+@cli.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@click.pass_context
+def lint(ctx: click.Context) -> None:
+    """Run pre-commit wrapper."""
+    project = resolve_runtime_project_root()
+    args = ctx.args or ["run", "--all-files"]
+    code = run(["pre-commit", *args], cwd=project)
+    raise SystemExit(code)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    cli()

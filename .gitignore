@@ -1,5 +1,7 @@
 .venv/
 .direnv/
 .envrc.local
+__pycache__/
+*.pyc
 node_modules/
 **/node_modules/

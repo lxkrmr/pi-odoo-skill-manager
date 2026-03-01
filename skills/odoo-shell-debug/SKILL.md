@@ -5,7 +5,7 @@ description: Use Odoo shell in local Docker to inspect ORM state, computed field
 
 # Odoo Shell Debug (Local Docker)
 
-_This skill follows `.pi/skills/_template/SKILL.md` conventions._
+_This skill follows `templates/SKILL.md` conventions._
 
 Use this skill when SQL is not enough (e.g. non-stored computed fields, record rules, context/company-dependent values, ORM methods).
 
