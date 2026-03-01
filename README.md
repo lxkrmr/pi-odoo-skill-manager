@@ -14,11 +14,16 @@ Main commands:
 ./pi-odoo-devkit.py wizard [PROJECT_REPO_PATH]
 ./pi-odoo-devkit.py doctor [PROJECT_REPO_PATH]
 ./pi-odoo-devkit.py cleanup [PROJECT_REPO_PATH]
+./pi-odoo-devkit.py reset-project-path
 ```
 
 Path behavior is consistent for all three:
 - pass `PROJECT_REPO_PATH`, or
 - run interactively and enter it when prompted.
+
+When prompted, you can save the path as default for next runs.
+Default is stored in `.envrc.local` as `ODOO_REPO_PATH`.
+Use `./pi-odoo-devkit.py reset-project-path` to clear it.
 
 In non-interactive mode, the path is required.
 
@@ -43,3 +48,9 @@ Browser JS helpers used by that skill are in:
 - `skills/browser-tools/browser-tools/`
 
 Credit/source for those helpers is documented directly in `skills/odoo-ui-check/SKILL.md`.
+
+## Smoke test
+
+```bash
+./scripts/smoke-test.sh
+```

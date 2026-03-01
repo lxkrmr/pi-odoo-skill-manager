@@ -716,7 +716,7 @@ def wizard(
                 continue
 
             default = s.name in selected_skills
-            use = click.confirm("      Enable this skill?", default=default)
+            use = click.confirm(f"      Enable {s.name}?", default=default)
             if use:
                 selected_skills.add(s.name)
             else:
@@ -1035,6 +1035,18 @@ def cleanup_cmd(project_repo_path: Path | None, remove_local_exclude: bool, remo
 
     if skipped:
         click.echo(f"- Skipped unchanged entries: {skipped}")
+
+
+@cli.command("reset-project-path")
+def reset_project_path() -> None:
+    """Forget saved default Odoo project path (.envrc.local)."""
+    root = devkit_root()
+    envrc_local = _envrc_local_path(root)
+    if envrc_local.exists():
+        envrc_local.unlink()
+        click.echo(f"Removed saved project path file: {envrc_local}")
+    else:
+        click.echo("No saved project path found.")
 
 
 @cli.command()
