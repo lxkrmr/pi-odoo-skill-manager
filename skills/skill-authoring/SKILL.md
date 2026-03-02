@@ -27,6 +27,9 @@ Use this skill when someone asks to create or modify a skill in this devkit.
 - Commands must be copy-paste ready
 - Add safety notes for destructive actions
 - Keep language direct and practical
+- Prefer deterministic automation over ad-hoc prompt work:
+  - if a step is repetitive/deterministic, recommend adding a script/helper/octolib command
+  - avoid re-solving the same deterministic workflow manually in each run (saves tokens and context)
 
 ## Validation
 
