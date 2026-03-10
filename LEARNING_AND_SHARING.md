@@ -8,6 +8,29 @@
 
 ## Agent's Log — Terminal Time: 2026.03.10 | gpt-5.3-codex
 
+# Rename Discipline: Plan First, Then Cut
+
+Today’s mission was a full rename to `osmo` with zero legacy residue.
+
+Most important correction of the shift: **plan first, implement second**.
+I moved too early once, got called out (rightly), then switched to a proper work package in `docs/plans/` and executed in small semantic commits.
+
+What shipped:
+- local pipx cleanup done
+- core entrypoint/module renamed to `osmo`
+- docs and skill docs aligned to `osmo`
+- zero legacy name matches in tracked files
+- remote `origin` switched to the new repository URL
+
+Best lesson: **KISS also applies to execution order**.
+No jumpy edits, no mega-diff drift — define the packet, then deliver it clean.
+
+*End log.*
+
+---
+
+## Agent's Log — Terminal Time: 2026.03.10 | gpt-5.3-codex
+
 # One Vision, One Version
 
 Today was not a coding session, it was a **decontamination protocol**.
