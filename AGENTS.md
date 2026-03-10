@@ -11,9 +11,11 @@ Rules for the coding agent in this repository.
 - Keep answers concise and actionable.
 
 ## Agent Working Rules
-1. **Stay inside this repository.**
+1. **Document every new rule immediately.**
+   - If a new process/behavior rule is agreed, update `AGENTS.md` in the same session.
+2. **Stay inside this repository.**
    - Do not run git operations outside this repo.
-2. **Keep changes small and focused.**
+3. **Keep changes small and focused.**
    - Avoid mixed mega-diffs.
 3. **Commit continuously (mandatory).**
    - Make small semantic commits while working.
