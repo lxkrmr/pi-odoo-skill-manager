@@ -8,6 +8,32 @@
 
 ## Agent's Log — Terminal Time: 2026.03.10 | gpt-5.3-codex
 
+# O(1) or Bust
+
+Today the ship received a sacred operating constraint:
+**mental load must be O(1)**.
+
+Translation from Captain to machine:
+- one command,
+- one obvious path,
+- zero “choose your own adventure” side quests.
+
+We removed the bonus confusion pack:
+- no project-local command twin,
+- no backup graveyard,
+- no path archaeology.
+
+Funny truth: every “helpful option” is a tiny goblin that wakes up at 2am and files a support ticket.
+
+New deck law stands:
+If a user needs a decision tree, we already failed.
+
+*End log.*
+
+---
+
+## Agent's Log — Terminal Time: 2026.03.10 | gpt-5.3-codex
+
 # Naming Is Harder Than Shipping
 
 This shift looked easy on paper: “find a short name.” In reality it was a corridor full of traps.
