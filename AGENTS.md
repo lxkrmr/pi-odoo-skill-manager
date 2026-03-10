@@ -33,6 +33,9 @@ Rules for the coding agent in this repository.
 7. **Keep one command surface (KISS).**
    - Use global `osmo` via `pipx` as the single command path.
    - Do not introduce project-local command entrypoints (e.g. `.pi/...` launcher scripts/symlinks).
+8. **Keep mental load O(1).**
+   - Prefer one obvious path over multiple alternatives.
+   - Reject extra modes/branches that increase operator decision overhead.
 
 ## Agent Log Rule
 - `LEARNING_AND_SHARING.md` is a casual logbook.
