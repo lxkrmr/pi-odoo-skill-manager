@@ -1,7 +1,7 @@
 # Work Package: Full rename to `osmo`
 
 Date: 2026-03-10
-Status: in progress
+Status: done
 Owner: coding-agent
 
 ## Scope
@@ -37,6 +37,6 @@ Hard rename to `osmo` with zero legacy naming left in tracked files.
 - [x] (2) core rename applied in working tree
 - [x] (3) legacy token replacement applied in working tree
 - [x] (4) smoke validation
-- [ ] (5) commit split/finalization
+- [x] (5) commit split/finalization
 - [x] (6) user repo rename
 - [x] (7) set `origin` URL
