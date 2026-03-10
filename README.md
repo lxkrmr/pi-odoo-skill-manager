@@ -99,11 +99,10 @@ Current shared skills in this devkit:
 - `dev-workbench`
 - `local-db`
 - `semantic-commit-message`
-- `odoo-addon-lifecycle`
+- `odoo-otto`
 - `odoo-log-debug`
 - `odoo-pr-review`
 - `odoo-shell-debug`
-- `odoo-translate`
 - `odoo-ui-check`
 - `skill-authoring`
 - `web-lookup`

@@ -5,9 +5,8 @@ This devkit currently exposes shared Odoo development skills, including:
 - `semantic-commit-message`
 - `dev-workbench`
 - `local-db`
-- `odoo-addon-lifecycle`
+- `odoo-otto`
 - `odoo-shell-debug`
-- `odoo-translate`
 - `odoo-ui-check`
 - `odoo-log-debug`
 - `odoo-pr-review`
