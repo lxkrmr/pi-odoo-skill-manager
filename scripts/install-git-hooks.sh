@@ -8,3 +8,4 @@ chmod +x "$ROOT/.githooks/pre-commit"
 
 echo "Installed local git hooks (core.hooksPath=.githooks)"
 echo "pre-commit now runs: ./scripts/smoke-test.sh"
+echo "If smoke fails on dependencies, run: ./scripts/bootstrap.sh"
