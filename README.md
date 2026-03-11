@@ -165,11 +165,16 @@ Layout is stack-based for readability (otto-like):
 
 ## Project path behavior
 
-The tool resolves your Odoo project path by:
+Path-aware commands support explicit project targeting.
 
+Wizard/doctor/cleanup resolve project path by:
 1. explicit argument (if provided), or
 2. saved default from `.envrc.local` (`ODOO_REPO_PATH`), or
 3. interactive prompt.
+
+Runtime commands (`components`, `enable-skill`, `disable-skill`, `up`, `db`, `shell`, `test`, `lint`) support:
+- `--project /path/to/odoo-project` (recommended for deterministic automation)
+- otherwise cwd-based auto-detection.
 
 You can clear saved path with:
 
@@ -204,6 +209,10 @@ osmo doctor [PROJECT_REPO_PATH]
 osmo doctor [PROJECT_REPO_PATH] --output json
 osmo doctor --describe --output json
 osmo cleanup [PROJECT_REPO_PATH]
+osmo components --project /path/to/odoo-project --output json
+osmo enable-skill dev-workbench --project /path/to/odoo-project --dry-run --output json
+osmo disable-skill dev-workbench --project /path/to/odoo-project --dry-run --output json
+osmo up --project /path/to/odoo-project
 osmo reset-project-path --dry-run --output json
 osmo reset-project-path --describe --output json
 ```

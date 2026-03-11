@@ -25,9 +25,14 @@ For automation commands:
 - `--output json` is supported.
 - `--describe` is supported.
 - mutating commands support `--dry-run`.
+- `components`, `enable-skill`, `disable-skill` support `--project <path>` for explicit project targeting.
 
 Mutating commands:
 - `wizard`, `cleanup`, `enable-skill`, `disable-skill`, `reset-project-path`
+
+Runtime path targeting:
+- automation: `components`, `enable-skill`, `disable-skill` accept `--project <path>`
+- human-ops: `up`, `db`, `shell`, `test`, `lint` accept `--project <path>`
 
 ## JSON envelope
 
