@@ -91,4 +91,7 @@ echo "[smoke] reset-project-path dry-run json"
 "$PY" "$CLI" reset-project-path --dry-run --output json >/tmp/devkit-smoke.out
 "$PY" -c 'import json; d=json.load(open("/tmp/devkit-smoke.out")); assert d["ok"]; assert d["command"]=="reset-project-path"; assert d["data"]["dry_run"] is True'
 
+echo "[smoke] targeted cli contract tests"
+"$ROOT/scripts/test-cli-contracts.sh"
+
 echo "[smoke] done"
