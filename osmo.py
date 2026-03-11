@@ -276,24 +276,50 @@ def load_skill_manifest(root: Path) -> dict:
         return {}
 
 
-def evaluate_skill_requirements(skill_name: str, project_dir: Path, manifest: dict) -> tuple[bool, str]:
+def evaluate_skill_requirements_detailed(skill_name: str, project_dir: Path, manifest: dict) -> list[dict[str, str]]:
     entry = manifest.get(skill_name, {})
     req = entry.get("requirements", {}) if isinstance(entry, dict) else {}
 
-    reasons: list[str] = []
+    failures: list[dict[str, str]] = []
+
     for rel in req.get("project_files", []):
         if not (project_dir / rel).exists():
-            reasons.append(f"missing file: {rel}")
+            failures.append(
+                {
+                    "code": "missing_project_file",
+                    "path": rel,
+                    "message": f"missing file: {rel}",
+                }
+            )
+
     for rel in req.get("project_dirs", []):
         p = project_dir / rel
         if not p.exists() or not p.is_dir():
-            reasons.append(f"missing directory: {rel}")
+            failures.append(
+                {
+                    "code": "missing_project_dir",
+                    "path": rel,
+                    "message": f"missing directory: {rel}",
+                }
+            )
+
     for cmd in req.get("commands", []):
         if not command_exists(cmd):
-            reasons.append(f"missing command: {cmd}")
+            failures.append(
+                {
+                    "code": "missing_command",
+                    "command": cmd,
+                    "message": f"missing command: {cmd}",
+                }
+            )
 
-    if reasons:
-        return False, "; ".join(reasons)
+    return failures
+
+
+def evaluate_skill_requirements(skill_name: str, project_dir: Path, manifest: dict) -> tuple[bool, str]:
+    failures = evaluate_skill_requirements_detailed(skill_name, project_dir, manifest)
+    if failures:
+        return False, "; ".join(item["message"] for item in failures)
     return True, ""
 
 
@@ -1839,13 +1865,21 @@ def components(describe: bool, output_mode: str) -> None:
                 "skills": [],
             }
             for s in skills:
-                ok, reason = evaluate_skill_requirements(s.name, project, manifest)
+                failures = evaluate_skill_requirements_detailed(s.name, project, manifest)
+                ok = not failures
+                reason = "; ".join(item["message"] for item in failures)
+                reason_code = ""
+                if failures:
+                    reason_code = failures[0]["code"] if len(failures) == 1 else "multiple_requirements"
+
                 data["skills"].append(
                     {
                         "name": s.name,
                         "enabled": s.name in enabled,
                         "available": ok,
                         "reason": reason,
+                        "reason_code": reason_code,
+                        "requirement_failures": failures,
                         "description": s.description,
                     }
                 )
