@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "command": "help",
+  "data": {
+    "contract_version": "v1",
+    "contract_spec": "docs/cli-contract.md",
+    "commands": "__array__",
+    "automation_commands": "__array__",
+    "non_contract_commands": "__array__",
+    "details": "__array__"
+  }
+}

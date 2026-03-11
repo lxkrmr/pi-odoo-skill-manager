@@ -28,6 +28,10 @@ mkdir -p "$TMP_PROJECT/.pi/skills/shared-osmo"
 mkdir -p "$TMP_PROJECT/.pi"
 printf "managed-by: osmo installer\n" >"$TMP_PROJECT/.pi/DEVKIT_AGENT_NOTES.md"
 
+echo "[golden] help --output json"
+"$PY" "$CLI" help --output json >"$OUT"
+"$PY" "$CHECK" "$GOLDEN_DIR/help.json" "$OUT"
+
 echo "[golden] wizard --dry-run"
 "$PY" "$CLI" wizard "$TMP_PROJECT" --dry-run --output json >"$OUT"
 "$PY" "$CHECK" "$GOLDEN_DIR/wizard-dry-run.json" "$OUT"

@@ -35,6 +35,19 @@ assert_json_error() {
   "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"] is False; assert d["error"]["code"]==sys.argv[2]' "$OUT" "$expected_code"
 }
 
+echo "[contract] help contract metadata"
+"$PY" "$CLI" help --output json >"$OUT"
+"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; data=d["data"]; assert data["contract_version"]=="v1"; assert data["contract_spec"]=="docs/cli-contract.md"; details=data["details"]; assert isinstance(details,list) and details; first=details[0]; assert {"name","summary","contract_scope","automation_relevant","supports_dry_run","params"}.issubset(first.keys());
+for item in details:
+  for p in item["params"]:
+    assert "kind" in p and "name" in p and "required" in p
+    if p["kind"]=="option":
+      assert "opts" in p
+    elif p["kind"]=="argument":
+      assert "nargs" in p
+    else:
+      raise AssertionError(f"unknown param kind: {p['kind']}")' "$OUT"
+
 echo "[contract] validation errors"
 assert_json_error "\"$PY\" \"$CLI\" wizard --yes --output json" "validation_error"
 assert_json_error "\"$PY\" \"$CLI\" cleanup --yes --output json" "validation_error"
