@@ -35,9 +35,10 @@ assert_json_error() {
   "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"] is False; assert d["error"]["code"]==sys.argv[2]' "$OUT" "$expected_code"
 }
 
-echo "[contract] help contract metadata"
-"$PY" "$CLI" help --output json >"$OUT"
-"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; data=d["data"]; assert data["contract_version"]=="v1"; assert data["contract_spec"]=="docs/cli-contract.md"; details=data["details"]; assert isinstance(details,list) and details; first=details[0]; assert {"name","summary","contract_scope","automation_relevant","supports_dry_run","params"}.issubset(first.keys());
+test_help_contract_metadata() {
+  echo "[contract] help contract metadata"
+  "$PY" "$CLI" help --output json >"$OUT"
+  "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; data=d["data"]; assert data["contract_version"]=="v1"; assert data["contract_spec"]=="docs/cli-contract.md"; details=data["details"]; assert isinstance(details,list) and details; first=details[0]; assert {"name","summary","contract_scope","automation_relevant","supports_dry_run","params"}.issubset(first.keys());
 for item in details:
   for p in item["params"]:
     assert "kind" in p and "name" in p and "required" in p
@@ -47,55 +48,72 @@ for item in details:
       assert "nargs" in p
     else:
       raise AssertionError(f"unknown param kind: {p['kind']}")' "$OUT"
+}
 
-echo "[contract] validation errors"
-assert_json_error "\"$PY\" \"$CLI\" wizard --yes --output json" "validation_error"
-assert_json_error "\"$PY\" \"$CLI\" cleanup --yes --output json" "validation_error"
+test_validation_errors() {
+  echo "[contract] validation errors"
+  assert_json_error "\"$PY\" \"$CLI\" wizard --yes --output json" "validation_error"
+  assert_json_error "\"$PY\" \"$CLI\" cleanup --yes --output json" "validation_error"
+}
 
-
-echo "[contract] dry-run must not mutate"
-TMP_PROJECT="$(mktemp -d)"
-cat >"$TMP_PROJECT/docker-compose.yml" <<'YAML'
+test_cleanup_dry_run_no_mutation() {
+  echo "[contract] dry-run must not mutate"
+  TMP_PROJECT="$(mktemp -d)"
+  cat >"$TMP_PROJECT/docker-compose.yml" <<'YAML'
 services: {}
 YAML
-mkdir -p "$TMP_PROJECT/.pi/skills/shared-osmo"
-mkdir -p "$TMP_PROJECT/.pi"
-printf "managed-by: osmo installer\n" >"$TMP_PROJECT/.pi/DEVKIT_AGENT_NOTES.md"
+  mkdir -p "$TMP_PROJECT/.pi/skills/shared-osmo"
+  mkdir -p "$TMP_PROJECT/.pi"
+  printf "managed-by: osmo installer\n" >"$TMP_PROJECT/.pi/DEVKIT_AGENT_NOTES.md"
 
-"$PY" "$CLI" cleanup "$TMP_PROJECT" --dry-run --output json >"$OUT"
-"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; assert d["data"]["dry_run"] is True; assert any("PLAN:" in a for a in d["data"]["actions"])' "$OUT"
+  "$PY" "$CLI" cleanup "$TMP_PROJECT" --dry-run --output json >"$OUT"
+  "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; assert d["data"]["dry_run"] is True; assert any("PLAN:" in a for a in d["data"]["actions"])' "$OUT"
 
-if [ ! -d "$TMP_PROJECT/.pi/skills/shared-osmo" ]; then
-  echo "cleanup --dry-run removed skills dir" >&2
-  exit 1
-fi
-if [ ! -f "$TMP_PROJECT/.pi/DEVKIT_AGENT_NOTES.md" ]; then
-  echo "cleanup --dry-run removed notes file" >&2
-  exit 1
-fi
+  if [ ! -d "$TMP_PROJECT/.pi/skills/shared-osmo" ]; then
+    echo "cleanup --dry-run removed skills dir" >&2
+    exit 1
+  fi
+  if [ ! -f "$TMP_PROJECT/.pi/DEVKIT_AGENT_NOTES.md" ]; then
+    echo "cleanup --dry-run removed notes file" >&2
+    exit 1
+  fi
+}
 
+test_components_contract_fields() {
+  echo "[contract] components reason codes"
+  (
+    cd "$TMP_PROJECT"
+    "$PY" "$CLI" components --output json >"$OUT"
+  )
+  "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; skills=d["data"]["skills"]; assert isinstance(skills,list) and skills; required={"name","enabled","available","reason","reason_code","requirement_failures","description"}; assert required.issubset(skills[0].keys())' "$OUT"
+}
 
-echo "[contract] components reason codes"
-(
-  cd "$TMP_PROJECT"
-  "$PY" "$CLI" components --output json >"$OUT"
-)
-"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; skills=d["data"]["skills"]; assert isinstance(skills,list) and skills; required={"name","enabled","available","reason","reason_code","requirement_failures","description"}; assert required.issubset(skills[0].keys())' "$OUT"
-
-echo "[contract] doctor structured recommendations"
-TMP_DOCTOR="$(mktemp -d)"
-cat >"$TMP_DOCTOR/docker-compose.yml" <<'YAML'
+test_doctor_structured_contract() {
+  echo "[contract] doctor structured recommendations"
+  local tmp_doctor
+  tmp_doctor="$(mktemp -d)"
+  cat >"$tmp_doctor/docker-compose.yml" <<'YAML'
 services: {}
 YAML
-set +e
-"$PY" "$CLI" doctor "$TMP_DOCTOR" --output json >"$OUT"
-DOCTOR_RC=$?
-set -e
-rm -rf "$TMP_DOCTOR"
-if [ "$DOCTOR_RC" -ne 1 ]; then
-  echo "Expected doctor exit code 1 on failing checks, got $DOCTOR_RC" >&2
-  exit 1
-fi
-"$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; rs=d["data"]["recommendations_structured"]; assert isinstance(rs,list) and rs; req={"code","severity","message","next_command"}; assert req.issubset(rs[0].keys()); assert any(r["code"] for r in rs); cs=d["data"]["checks_structured"]; assert isinstance(cs,list) and cs; req2={"name","check_code","category","resource","status","severity","message"}; assert req2.issubset(cs[0].keys()); assert any(c["check_code"]=="shared_skills_installed" for c in cs)' "$OUT"
+  set +e
+  "$PY" "$CLI" doctor "$tmp_doctor" --output json >"$OUT"
+  local doctor_rc=$?
+  set -e
+  rm -rf "$tmp_doctor"
+  if [ "$doctor_rc" -ne 1 ]; then
+    echo "Expected doctor exit code 1 on failing checks, got $doctor_rc" >&2
+    exit 1
+  fi
+  "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["ok"]; rs=d["data"]["recommendations_structured"]; assert isinstance(rs,list) and rs; req={"code","severity","message","next_command"}; assert req.issubset(rs[0].keys()); assert any(r["code"] for r in rs); cs=d["data"]["checks_structured"]; assert isinstance(cs,list) and cs; req2={"name","check_code","category","resource","status","severity","message"}; assert req2.issubset(cs[0].keys()); assert any(c["check_code"]=="shared_skills_installed" for c in cs)' "$OUT"
+}
 
-echo "[contract] done"
+main() {
+  test_help_contract_metadata
+  test_validation_errors
+  test_cleanup_dry_run_no_mutation
+  test_components_contract_fields
+  test_doctor_structured_contract
+  echo "[contract] done"
+}
+
+main
