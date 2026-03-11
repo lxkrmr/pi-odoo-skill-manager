@@ -1130,6 +1130,16 @@ COMMAND_SPECS = {
     },
 }
 
+NON_CONTRACT_COMMANDS = [
+    "ui",
+    "new-skill",
+    "up",
+    "db",
+    "shell",
+    "test",
+    "lint",
+]
+
 
 def emit_json(payload: dict) -> None:
     click.echo(json.dumps(payload, ensure_ascii=False))
@@ -1222,10 +1232,12 @@ def help_cmd(output_mode: str) -> None:
                     }
                 )
 
+        contract_scope = "automation" if name in COMMAND_SPECS else ("human-ops" if name in NON_CONTRACT_COMMANDS else "general")
         details.append(
             {
                 "name": name,
                 "summary": (cmd.help or "").strip().splitlines()[0] if cmd.help else "",
+                "contract_scope": contract_scope,
                 "automation_relevant": bool(COMMAND_SPECS.get(name, {}).get("automation_relevant", False)),
                 "supports_dry_run": bool(COMMAND_SPECS.get(name, {}).get("supports_dry_run", False)),
                 "params": params,
@@ -1235,6 +1247,7 @@ def help_cmd(output_mode: str) -> None:
     data = {
         "commands": commands,
         "automation_commands": sorted(COMMAND_SPECS.keys()),
+        "non_contract_commands": NON_CONTRACT_COMMANDS,
         "details": details,
     }
     text_lines = ["Available commands:", *(f"- {name}" for name in commands)]

@@ -31,6 +31,7 @@ echo "[smoke] help"
 echo "[smoke] command contracts"
 "$PY" "$CLI" wizard --describe --output json | "$PY" -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["command"]=="wizard"; assert d["data"]["describe"]["supports_dry_run"] is True'
 "$PY" "$CLI" reset-project-path --describe --output json | "$PY" -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["command"]=="reset-project-path"; assert d["data"]["describe"]["supports_dry_run"] is True'
+"$PY" "$CLI" help --output json | "$PY" -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"]; nc=set(d["data"]["non_contract_commands"]); assert {"new-skill","up","db","shell","test","lint","ui"}.issubset(nc); details={x["name"]:x for x in d["data"]["details"]}; assert details["wizard"]["contract_scope"]=="automation"; assert details["db"]["contract_scope"]=="human-ops"'
 
 echo "[smoke] non-interactive path guardrails"
 ENVRC_LOCAL="$ROOT/.envrc.local"
