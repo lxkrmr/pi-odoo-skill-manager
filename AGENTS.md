@@ -60,6 +60,9 @@ Rules for the coding agent in this repository.
    - Do not collapse responsibilities into osmo or otto.
 17. **Do not modify sibling repos from osmo sessions.**
    - Never edit code in `../erp/` from this repository session.
+18. **osmo scope inside sibling Odoo repo is skill-only.**
+   - In `../erp/`, osmo may only manage skill artifacts under `.pi/`.
+   - No non-skill changes are allowed in sibling project files.
 
 ## Agent Log Rule
 - `LEARNING_AND_SHARING.md` is a casual logbook.
