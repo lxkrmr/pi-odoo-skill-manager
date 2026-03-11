@@ -5,7 +5,7 @@ Status: queued
 
 ## Context
 A dedicated tool should eventually replace project-local test wrapper scripts like:
-- `../erp/run-tests.sh`
+- `<odoo-workdir>/run-tests.sh`
 
 This aligns with single-responsibility architecture:
 - `otto`: Odoo custom-addon workflows
