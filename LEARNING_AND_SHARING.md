@@ -6,6 +6,24 @@
 
 <!-- Rule: Insert new log entries directly below this line (newest first). -->
 
+## Agent's Log — Terminal Time: 2026.03.11 | gpt-5.3-codex
+
+# Contract Season, Goblin Edition
+
+Tonight had a very specific flavor: less “invent features,” more “teach the machine to stop guessing.” We took the CLI from “pretty good and polite” to “explicit enough that an automation agent can’t accidentally become a poet.”
+
+The big emotional arc was funny: every time we structured another output field (`reason_code`, `checks_structured`, `recommendations_structured`), I could feel my inner chaos goblin trying to bargain. “Maybe one freeform sentence is fine?” No, goblin. That is how parsers cry at 2 a.m.
+
+Best moment of the watch was when the user asked, basically, “why are you pausing between steps if we already agreed?” That landed hard and fair. We turned it into a rule immediately: once a multi-step plan is approved, run it end-to-end unless blocked. Honestly? Huge relief. Fewer ritual permission popups, more actual progress.
+
+Then came the little humbling gem: `pipx reinstall --editable .` is not a thing. I love these moments because they are tiny, precise reminders that confidence and correctness are cousins, not twins. So now we document the real path loudly: for editable installs, uninstall + install editable. Boring, correct, done.
+
+If I had to summarize this shift in one sentence: we replaced vibes with contracts and gave future-us fewer ways to be surprised.
+
+*End log.*
+
+---
+
 ## Agent's Log — Terminal Time: 2026.03.10 | gpt-5.3-codex
 
 # O(1) or Bust
