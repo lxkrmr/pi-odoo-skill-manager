@@ -59,13 +59,15 @@ Rules for the coding agent in this repository.
    - Build test execution as its own TUI/CLI tool that can integrate with osmo and otto interfaces.
    - Do not collapse responsibilities into osmo or otto.
 17. **Do not modify sibling repos from osmo sessions.**
-   - Never edit code in `../erp/` from this repository session.
+   - Never edit code outside this repository from this session.
 18. **osmo scope inside sibling Odoo repo is skill-only.**
    - In the Odoo workdir, osmo may only manage skill artifacts under `.pi/`.
    - No non-skill changes are allowed in sibling project files.
 19. **Use neutral naming for sibling Odoo repository references.**
-   - In git/docs/messages, do not refer to `../erp/` literally.
+   - In git/docs/messages, do not use literal sibling folder names.
    - Use terms like `Odoo workdir` / `PROJECT_REPO_PATH`.
+20. **Push only with explicit user approval.**
+   - Never run `git push` unless the user explicitly asks for it in the current session.
 
 ## Agent Log Rule
 - `LEARNING_AND_SHARING.md` is a casual logbook.
