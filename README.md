@@ -18,6 +18,7 @@ The final `O` in `osmo` (from t**O**ol) is an easter egg aligned with the `octo`
 
 ## Release notes
 
+- `docs/releases/README.md`
 - `docs/releases/v0.2.0.md`
 - `docs/releases/RELEASE_CHECKLIST.md`
 
