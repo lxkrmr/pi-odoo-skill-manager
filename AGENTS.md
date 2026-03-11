@@ -43,6 +43,15 @@ Rules for the coding agent in this repository.
    - When changes affect installed `osmo` behavior/version, explicitly remind the user to run `pipx upgrade osmo` (or reinstall editable if needed).
 11. **Apply editable `pipx` refresh when requested.**
    - If user asks for automatic local refresh, run `pipx uninstall osmo` + `pipx install --editable .` at the end of implementation.
+12. **Keep strict tool boundaries between osmo and otto.**
+   - `otto` handles Odoo custom-addon operations.
+   - `osmo` handles skill management and skill maintenance.
+13. **Design tools for single responsibility and loose coupling.**
+   - One tool = one clear job.
+   - Do not make tools dependent on each other at runtime.
+14. **Keep osmo skills minimal and deterministic.**
+   - Prefer explicit, contract-driven behavior.
+   - Use external tools through clear interfaces, never through hidden coupling.
 
 ## Agent Log Rule
 - `LEARNING_AND_SHARING.md` is a casual logbook.
