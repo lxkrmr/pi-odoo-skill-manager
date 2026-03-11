@@ -32,3 +32,9 @@ Design a small reusable release-check CLI that can be used by multiple internal 
 2. Define output contract (`text` + `json`).
 3. Build small prototype against osmo + otto use-cases.
 4. Decide: keep internal first vs immediate standalone package.
+
+## Follow-up idea (Odoo-focused)
+- Add a future work package for an `odoo-migration-impact` skill/tool:
+  - detect model/field/view changes,
+  - surface probable migration/data-risk hotspots,
+  - propose minimum required test scope for safe rollout.
